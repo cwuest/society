@@ -1,19 +1,23 @@
+require 'society/file_cache'
+
 module Society
 
   class Parser
 
+    FILECACHE_PATH = './doc/society/cache'
+
     def self.for_files(*file_paths)
-      new(::Analyst.for_files(*file_paths))
+      cache = FileCache.new(FILECACHE_PATH, *file_paths)
+      asts  = [process_updated_files(cache), process_unchanged_files(cache)]
+      new(asts.flatten.compact)
     end
 
     def self.for_source(source)
       new(::Analyst.for_source(source))
     end
 
-    attr_reader :analyzer
-
-    def initialize(analyzer)
-      @analyzer = analyzer
+    def initialize(classes)
+      @classes = classes.flatten
     end
 
     def report(format, output_path=nil)
@@ -25,14 +29,29 @@ module Society
 
     private
 
+    attr_reader :classes
+
+    def self.process_updated_files(cache)
+      ast          = ::Analyst.for_files(*cache.updated_files)
+      class_tuples = ast.classes.map do |klass|
+        [klass.location.gsub(/:.*/, ''), klass]
+      end
+      class_tuples.map(&:first).uniq.each do |file|
+        data = class_tuples.select { |tuple| tuple.first == file }.map(&:last)
+        cache[file] = data
+      end
+
+      ast.classes
+    end
+
+    def self.process_unchanged_files(cache)
+      cache.unchanged_files.map { |path| cache[path] }
+    end
+
     FORMATTERS = {
       html: Society::Formatter::Report::HTML,
       json: Society::Formatter::Report::Json
     }
-
-    def classes
-      @classes ||= analyzer.classes
-    end
 
     def class_graph
       @class_graph ||= begin
